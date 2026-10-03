@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - CYBERTEX</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .dashboard-profile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: var(--space-32);
+    }
+    .profile-pic {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      margin-bottom: var(--space-16);
+      border: 2px solid var(--color-border);
+    }
+    .profile-name {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--color-text-navy);
+      margin-bottom: var(--space-4);
+    }
+    .profile-email {
+      font-size: 15px;
+      color: var(--color-text-muted);
+    }
+  </style>
+</head>
+<body>
+  <!-- Background Watermark -->
+  <div class="watermark" aria-hidden="true">CYBERTEX</div>
+
+  <main class="signin-container">
+    <div class="signin-card" style="text-align: center;">
+      <header class="signin-header">
+        <h1 class="signin-title">Welcome to CYBERTEX</h1>
+        <p class="signin-subtitle">You are successfully authenticated</p>
+      </header>
+      
+      <div id="profile-container" class="dashboard-profile" style="display: none;">
+        <img id="profile-pic" class="profile-pic" src="" alt="Profile Picture">
+        <div id="profile-name" class="profile-name"></div>
+        <div id="profile-email" class="profile-email"></div>
+      </div>
+      <div id="loading-indicator" style="color: var(--color-text-muted); margin-bottom: 24px;">
+        Loading profile...
+      </div>
+
+      <button id="signout-btn" class="signin-button" style="background-color: var(--color-error);">
+        <span class="btn-text">Sign Out</span>
+      </button>
+    </div>
+  </main>
+
+  <script>
+    // Fetch user profile
+    fetch('/api/me')
+      .then(res => {
+        if (!res.ok) {
+          window.location.href = '/index.html';
+          throw new Error('Unauthorized');
+        }
+        return res.json();
+      })
+      .then(data => {
+        document.getElementById('loading-indicator').style.display = 'none';
+        
+        const profileContainer = document.getElementById('profile-container');
+        profileContainer.style.display = 'flex';
+        
+        if (data.picture) {
+          document.getElementById('profile-pic').src = data.picture;
+        } else {
+          document.getElementById('profile-pic').style.display = 'none';
+        }
+        
+        document.getElementById('profile-name').textContent = data.name || 'User';
+        document.getElementById('profile-email').textContent = data.email || '';
+      })
+      .catch(err => console.error(err));
+
+    // Handle sign out
+    document.getElementById('signout-btn').addEventListener('click', () => {
+      fetch('/api/auth/logout', { method: 'POST' })
+        .then(() => {
+          window.location.href = '/index.html';
+        });
+    });
+  </script>
+</body>
+</html>

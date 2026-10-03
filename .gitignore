@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+client_secret*.json
+*.pem
+*.key
+__pycache__/
+*.pyc
+.venv/
+venv/
+flask_session/
+instance/
+*.db
+*.sqlite
+*.log
+.DS_Store
+node_modules/
