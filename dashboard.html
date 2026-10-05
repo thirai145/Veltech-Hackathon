@@ -512,13 +512,25 @@ function onSearch(v){ searchQ=v.trim(); renderList(); }
 function fmtDate(s){
   if(!s)return'';
   try{
-    const d=new Date(s),now=new Date();
+    // If s is all digits (e.g. Gmail internalDate), parse it as int
+    const ts = /^\d+$/.test(s) ? parseInt(s, 10) : s;
+    const d=new Date(ts),now=new Date();
     if(isNaN(d))return s;
     if(d.toDateString()===now.toDateString())return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     const yest=new Date(now);yest.setDate(yest.getDate()-1);
     if(d.toDateString()===yest.toDateString())return'Yesterday';
     if(now-d<7*86400000)return d.toLocaleDateString([],{weekday:'short'});
     return d.toLocaleDateString([],{month:'short',day:'numeric'});
+  }catch{return s;}
+}
+/* ── Full Date formatter ── */
+function fmtFullDate(s){
+  if(!s)return'-';
+  try{
+    const ts = /^\d+$/.test(s) ? parseInt(s, 10) : s;
+    const d=new Date(ts);
+    if(isNaN(d))return s;
+    return d.toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
   }catch{return s;}
 }
 
@@ -570,7 +582,8 @@ function renderList(){
 
     const meta=document.createElement('div');
     meta.className='e-meta';
-    meta.innerHTML=`<span class="e-date">${esc(fmtDate(email.date))}</span><span class="rbadge ${lvl}">${riskLabel(lvl)}</span><span class="rscore">${score}/100</span>`;
+    const displayDate = email.gmail_internal_date || email.date;
+    meta.innerHTML=`<span class="e-date">${esc(fmtDate(displayDate))}</span><span class="rbadge ${lvl}">${riskLabel(lvl)}</span><span class="rscore">${score}/100</span>`;
 
     row.appendChild(av);row.appendChild(main);row.appendChild(meta);
     list.appendChild(row);
@@ -616,7 +629,7 @@ function openDetail(email){
       <div class="d-meta-row"><span class="d-meta-lbl">From</span><span class="d-meta-val">${esc(name)} &lt;${esc(addr)}&gt;</span></div>
       <div class="d-meta-row"><span class="d-meta-lbl">To</span><span class="d-meta-val">${esc(email.recipient||'–')}</span></div>
       <div class="d-meta-row"><span class="d-meta-lbl">Subject</span><span class="d-meta-val">${esc(email.subject||'(No Subject)')}</span></div>
-      <div class="d-meta-row"><span class="d-meta-lbl">Date</span><span class="d-meta-val">${esc(email.date||'–')}</span></div>
+      <div class="d-meta-row"><span class="d-meta-lbl">Date</span><span class="d-meta-val">${esc(fmtFullDate(email.gmail_internal_date || email.date))}</span></div>
       <div class="d-meta-row"><span class="d-meta-lbl">Direction</span><span class="d-meta-val"><span class="dbadge ${dir}">${dir}</span></span></div>
     </div>
     <div class="d-sec-title">Message Content</div>
@@ -641,13 +654,23 @@ function openDetail(email){
       ${urlsHtml}
     </div>
 
-    <div class="d-sec-title">Email Origin & Geolocation</div>
+    <div class="d-sec-title">Approximate Network Location</div>
     <div class="analysis-card" style="margin-bottom:20px;" id="geo-card-${email.id}">
-      ${email.geolocation ? `
+      ${email.origin_ip ? `
         <div class="d-meta" id="geo-inner-${email.id}">
-          <div class="d-meta-row"><span class="d-meta-lbl">Origin IP</span><span class="d-meta-val" style="font-family:monospace;">${esc(email.geolocation.ip)}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">IP Role</span><span class="d-meta-val">${esc(email.geolocation.role)}</span></div>
-          <div class="d-meta-row" style="margin-top:10px;"><span class="d-meta-val" style="color:#666; font-style:italic;">Validating geolocation...</span></div>
+          <div class="d-meta-row"><span class="d-meta-lbl">Origin IP</span><span class="d-meta-val" style="font-family:monospace;">${esc(email.origin_ip)}</span></div>
+          <div class="d-meta-row"><span class="d-meta-lbl">IP Role</span><span class="d-meta-val">${esc(email.origin_ip_role)}</span></div>
+          
+          <div class="d-meta-row" style="margin-top:10px;"><span class="d-meta-lbl">Country</span><span class="d-meta-val">${esc(email.geolocation_country || 'Unknown')}</span></div>
+          <div class="d-meta-row"><span class="d-meta-lbl">Region</span><span class="d-meta-val">${esc(email.geolocation_region || '-')}</span></div>
+          <div class="d-meta-row"><span class="d-meta-lbl">City</span><span class="d-meta-val">${esc(email.geolocation_city || '-')}</span></div>
+          
+          <div class="d-meta-row" style="margin-top:10px;"><span class="d-meta-lbl">Confidence</span><span class="d-meta-val" style="${email.geolocation_confidence && email.geolocation_confidence.startsWith('Low') ? 'color:var(--high); font-weight:bold;' : 'color:var(--low);'}">${esc(email.geolocation_confidence || 'High')}</span></div>
+          <div class="d-meta-row"><span class="d-meta-lbl">Source Header</span><span class="d-meta-val" style="font-family:monospace;">${esc(email.geolocation_source_header || 'Unknown')}</span></div>
+          
+          <div class="d-meta-row" style="margin-top:15px; font-size:11px; color:#666; font-style:italic; border-top:1px dashed #e2e8f0; padding-top:10px;">
+            <span class="d-meta-val">IP geolocation represents an approximate network location and does not establish the physical location or identity of the sender.</span>
+          </div>
         </div>
       ` : `
         <div class="d-meta">
@@ -667,46 +690,6 @@ function openDetail(email){
     </div>
   `;
 
-  
-  if(email.geolocation && email.geolocation.ip) {
-    // Fetch geo dynamically
-    fetch('/api/geolocation/' + email.geolocation.ip)
-      .then(r => r.json())
-      .then(geo => {
-        email.geolocation.geo = geo; // cache it
-        const c = document.getElementById('geo-inner-' + email.id);
-        if(!c) return;
-        
-        let loc = "Unavailable / Low confidence";
-        if(geo.city && geo.country) {
-          loc = `${esc(geo.city)}, ${esc(geo.region)}, ${esc(geo.country)}`;
-        } else if (geo.country) {
-          loc = esc(geo.country);
-        }
-        
-        let disclaimer = "IP geolocation represents an approximate network location and does not establish the physical location or identity of the sender.";
-        let cloudStr = geo.is_cloud ? `<div class="d-meta-row" style="margin-top:8px;"><span class="d-meta-val" style="color:#d97706; font-weight:bold;">Note: This IP belongs to ${esc(geo.org || 'a cloud provider')}. The location represents the network/server location rather than the sender's physical location.</span></div>` : '';
-
-        c.innerHTML = `
-          <div class="d-meta-row"><span class="d-meta-lbl">Origin IP</span><span class="d-meta-val" style="font-family:monospace;">${esc(email.geolocation.ip)}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">IP Role</span><span class="d-meta-val">${esc(email.geolocation.role)}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">Validation</span><span class="d-meta-val" style="font-weight:bold;">${esc(geo.validation || 'UNAVAILABLE')}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">Location</span><span class="d-meta-val">${loc}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">Accuracy</span><span class="d-meta-val">${esc(geo.accuracy_radius || 'Unknown')}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">ISP/Network</span><span class="d-meta-val">${esc(geo.isp||'Unknown')} ${geo.org ? `(${esc(geo.org)})`:''}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">ASN</span><span class="d-meta-val" style="font-family:monospace;">${esc(geo.asn||'Unknown')}</span></div>
-          <div class="d-meta-row"><span class="d-meta-lbl">Timezone</span><span class="d-meta-val">${esc(geo.timezone||'Unknown')}</span></div>
-          ${geo.lat ? `<div class="d-meta-row"><span class="d-meta-lbl">Coordinates</span><span class="d-meta-val">${esc(geo.lat)}, ${esc(geo.lon)}</span></div>` : ''}
-          <div class="d-meta-row"><span class="d-meta-lbl">Source</span><span class="d-meta-val">${esc(email.geolocation.source)}</span></div>
-          ${cloudStr}
-          <div class="d-meta-row" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);"><span class="d-meta-val" style="color:#666; font-style:italic; font-size:11px;">${disclaimer}</span></div>
-        `;
-      })
-      .catch(e => {
-        const c = document.getElementById('geo-inner-' + email.id);
-        if(c) c.innerHTML += `<div class="d-meta-row" style="color:var(--high);"><span class="d-meta-val">Failed to validate geolocation.</span></div>`;
-      });
-  }
   
   document.getElementById('d-overlay').classList.add('open');
   document.body.style.overflow='hidden';
@@ -794,9 +777,17 @@ function downloadForensicReport(email) {
         <tr><td style="padding:3px 0; font-weight:bold;">To:</td><td>${esc(email.recipient||'-')}</td></tr>
         ${email.cc ? `<tr><td style="padding:3px 0; font-weight:bold;">CC:</td><td>${esc(email.cc)}</td></tr>` : ''}
         <tr><td style="padding:3px 0; font-weight:bold;">Subject:</td><td>${esc(email.subject||'(No Subject)')}</td></tr>
-        <tr><td style="padding:3px 0; font-weight:bold;">Date / Time:</td><td>${esc(email.date||'-')}</td></tr>
+        <tr><td style="padding:3px 0; font-weight:bold;">Date / Time:</td><td>${esc(fmtFullDate(email.gmail_internal_date || email.date))}</td></tr>
         <tr><td style="padding:3px 0; font-weight:bold;">Direction:</td><td>${esc(email.direction||'UNKNOWN')}</td></tr>
       </table>
+
+      <h2 style="font-size:14px; color:#1a202c; border-bottom:1px solid #cbd5e0; padding-bottom:4px; margin-top:20px; text-transform:uppercase;">3. Approximate Network Location</h2>
+      <div style="margin-bottom:10px;">
+        <div style="font-weight:bold;">Origin IP: <span style="font-weight:normal; font-family:monospace;">${esc(email.origin_ip || 'Not available')}</span></div>
+        <div style="font-weight:bold;">IP Role: <span style="font-weight:normal;">${esc(email.origin_ip_role || 'Not available')}</span></div>
+        <div style="font-weight:bold;">Network Location: <span style="font-weight:normal;">${esc(email.geolocation_country ? (email.geolocation_city + ', ' + email.geolocation_region + ', ' + email.geolocation_country) : 'Unknown')}</span></div>
+        <div style="font-style:italic; font-size:10px; color:#666; margin-top:5px;">Note: IP geolocation represents an approximate network location and does not establish the physical location or identity of the sender.</div>
+      </div>
 
       <h2 style="font-size:14px; color:#1a202c; border-bottom:1px solid #cbd5e0; padding-bottom:4px; margin-top:20px; text-transform:uppercase;">3. Full Email Header Information</h2>
       <p>Full original email headers are retained internally by the application for technical investigation and security evidence processing.</p>

@@ -4,6 +4,7 @@ import html
 import base64
 import requests
 import hashlib
+import time
 from urllib.parse import urlparse
 from flask import Flask, request, jsonify, session, redirect, send_from_directory, Response
 import concurrent.futures
@@ -259,61 +260,176 @@ def extract_attachments(payload):
             attachments.extend(extract_attachments(part))
     return attachments
 
-def extract_ip(headers):
-    # Search specific IP headers
+IP_CACHE = {}
+
+def extract_and_geolocate_ip(headers, msg_id):
+    explicit_client_ips = []
+    received_ips = []
+    
     for h in headers:
         name = h["name"].lower()
         val = h["value"]
-        if name in ["x-originating-ip", "x-client-ip", "x-sender-ip"]:
-            m = re.search(r"(\d+\.\d+\.\d+\.\d+)", val)
-            if m: return m.group(1), name, "Originating Network"
-    
-    # Check Received headers for the earliest public IP
-    received_ips = []
-    for h in headers:
-        if h["name"].lower() == "received":
-            m = re.search(r"\[(\d+\.\d+\.\d+\.\d+)\]", h["value"])
-            if m:
-                ip = m.group(1)
-                if not (ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("127.") or re.match(r"172\.(1[6-9]|2[0-9]|3[0-1])\.", ip)):
-                    received_ips.append((ip, h["value"]))
-    if received_ips:
-        return received_ips[-1][0], "Received header", "Mail Relay / Submission Server"
         
-    return None, None, None
+        if name in ["x-originating-ip", "x-client-ip", "x-sender-ip"]:
+            m = re.findall(r"(\d+\.\d+\.\d+\.\d+)", val)
+            for ip in m:
+                if not is_private_ip(ip):
+                    explicit_client_ips.append({
+                        "ip": ip,
+                        "header": h["name"],
+                        "role": "Originating/Client IP (Explicit)"
+                    })
+                    
+        elif name == "received":
+            m = re.findall(r"\[(\d+\.\d+\.\d+\.\d+)\]", val)
+            if not m:
+                m = re.findall(r"\b(?:from|originating from)\s+[^(\s]*\s*\(\s*.*?(\d+\.\d+\.\d+\.\d+)\s*\)", val.lower())
+            if not m:
+                m = re.findall(r"(\d+\.\d+\.\d+\.\d+)", val)
+                
+            for ip in m:
+                if not is_private_ip(ip):
+                    received_ips.append({
+                        "ip": ip,
+                        "header": "Received",
+                        "role": "Mail Relay / Submission Server",
+                        "raw_header": val
+                    })
+                    
+    received_ips.reverse()
+    candidates = explicit_client_ips + received_ips
+    
+    unique_candidates = []
+    seen = set()
+    for c in candidates:
+        if c["ip"] not in seen:
+            seen.add(c["ip"])
+            unique_candidates.append(c)
+            
+    if not unique_candidates:
+        return None
+        
+    selected_candidate = None
+    selected_geo = None
+    reason = ""
+    
+    for c in unique_candidates:
+        ip = c["ip"]
+        if ip not in IP_CACHE:
+            IP_CACHE[ip] = get_geolocation_raw(ip)
+        geo = IP_CACHE[ip]
+        
+        if not geo:
+            continue
+            
+        is_cloud = is_cloud_provider(geo)
+        
+        if c["role"].startswith("Originating"):
+            selected_candidate = c
+            selected_geo = geo
+            reason = "Explicit originating IP found in headers."
+            break
+            
+        if not is_cloud:
+            c["role"] = "Originating/Client IP (Inferred)"
+            selected_candidate = c
+            selected_geo = geo
+            reason = f"First non-cloud IP in Received chain. ASN: {geo.get('asn')}"
+            break
+            
+        if selected_candidate is None:
+            selected_candidate = c
+            selected_geo = geo
+            reason = f"Fallback to earliest available IP. Identified as cloud/mail provider: {geo.get('org')}"
+            
+    if not selected_candidate:
+        return None
+        
+    is_cloud = is_cloud_provider(selected_geo)
+    role = selected_candidate["role"]
+    if is_cloud and "Originating" not in role:
+        role = "Mail Relay / Submission Server"
+        
+    final_info = {
+        "origin_ip": selected_candidate["ip"],
+        "origin_ip_role": role,
+        "geolocation_country": selected_geo.get("country"),
+        "geolocation_region": selected_geo.get("region"),
+        "geolocation_city": selected_geo.get("city"),
+        "geolocation_latitude": selected_geo.get("lat"),
+        "geolocation_longitude": selected_geo.get("lon"),
+        "geolocation_accuracy": "Approx. 25 km radius" if selected_geo.get("city") else "Approx. 100 km radius",
+        "geolocation_provider": "ipinfo.io",
+        "geolocation_confidence": "Low (Not representative of sender)" if is_cloud else "High",
+        "geolocation_source_header": selected_candidate["header"]
+    }
+    
+    print("\n[GEOLOCATION DEBUG]")
+    print(f"Message ID: {msg_id}")
+    print(f"Candidate IPs: {[c['ip'] for c in unique_candidates]}")
+    print(f"Selected IP: {final_info['origin_ip']}")
+    print(f"Selected IP role: {final_info['origin_ip_role']}")
+    print(f"Header source: {final_info['geolocation_source_header']}")
+    print(f"Geolocation API/provider: {final_info['geolocation_provider']}")
+    print(f"Raw provider country: {final_info['geolocation_country']}")
+    print(f"Raw provider region: {final_info['geolocation_region']}")
+    print(f"Raw provider city: {final_info['geolocation_city']}")
+    print(f"Confidence: {final_info['geolocation_confidence']}")
+    print(f"Reason for selecting the IP: {reason}")
+    print("----------------------------------------")
+    
+    return final_info
+
+def is_private_ip(ip):
+    return (ip.startswith("10.") or 
+            ip.startswith("192.168.") or 
+            ip.startswith("127.") or 
+            re.match(r"172\.(1[6-9]|2[0-9]|3[0-1])\.", ip) or
+            ip.startswith("169.254.") or
+            ip.startswith("0."))
+
+def is_cloud_provider(geo):
+    if not geo: return False
+    org = (geo.get("org") or "").lower()
+    cloud_keywords = ["google", "microsoft", "amazon", "cloudflare", "fastly", "akamai", "aws", "yahoo", "mimecast", "proofpoint", "salesforce", "sendgrid", "mailgun"]
+    for k in cloud_keywords:
+        if k in org:
+            return True
+    return False
 
 IPINFO_TOKEN = os.environ.get("IPINFO_TOKEN", "5cf617e03d02ec")
 
-def get_geolocation(ip):
-    if not ip: return None
+def get_geolocation_raw(ip):
     try:
         r = requests.get(f"https://ipinfo.io/{ip}/json?token={IPINFO_TOKEN}", timeout=2)
         if r.ok:
             d = r.json()
-            if "bogon" in d and d["bogon"]:
+            if d.get("bogon"):
                 return None
-            
-            # ipinfo.io returns "org" which contains both ASN and Org name (e.g., "AS15169 Google LLC")
             org_str = d.get("org", "")
             asn = ""
             org_name = org_str
             if org_str.startswith("AS"):
                 parts = org_str.split(" ", 1)
                 asn = parts[0]
-                if len(parts) > 1:
-                    org_name = parts[1]
-                else:
-                    org_name = ""
+                org_name = parts[1] if len(parts) > 1 else ""
+                
+            lat, lon = "", ""
+            if d.get("loc"):
+                loc_parts = d["loc"].split(",")
+                if len(loc_parts) == 2:
+                    lat, lon = loc_parts[0], loc_parts[1]
                     
             return {
-                "country": d.get("country"),
-                "region": d.get("region"),
-                "city": d.get("city"),
-                "isp": org_name,
+                "country": d.get("country", ""),
+                "region": d.get("region", ""),
+                "city": d.get("city", ""),
                 "org": org_name,
-                "asn": asn
+                "asn": asn,
+                "lat": lat,
+                "lon": lon
             }
-    except Exception:
+    except:
         pass
     return None
 
@@ -435,6 +551,7 @@ def api_geolocation(ip):
 ANALYSIS_CACHE = {}
 ACTIVE_RUNS = {}
 USER_ACTIVE_RUN = {}
+USER_MAILBOX = {}  # user_email -> { 'messages': [], 'msg_ids': set() }
 
 def fetch_one_msg(mid, hdrs, user_email):
     try:
@@ -453,6 +570,9 @@ def fetch_one_msg(mid, hdrs, user_email):
         reply_to  = hdrs_map.get("reply-to", "")
         message_id = hdrs_map.get("message-id", "")
         auth_res  = hdrs_map.get("authentication-results", "")
+        
+        gmail_internal_date = msg_data.get("internalDate", "0")
+        analyzed_at = int(time.time() * 1000)
 
         snippet   = html.unescape(msg_data.get("snippet", ""))
         body_dict = extract_body(payload)
@@ -470,15 +590,7 @@ def fetch_one_msg(mid, hdrs, user_email):
         content_hash = hashlib.sha256(analysis_body.encode("utf-8")).hexdigest()
         attachments = extract_attachments(payload)
         
-        ip, source, role = extract_ip(payload.get("headers", []))
-        geo_info = None
-        if ip:
-            geo_info = {
-                "ip": ip,
-                "source": source,
-                "role": role,
-                "geo": None
-            }
+        geo_info = extract_and_geolocate_ip(payload.get("headers", []), message_id or mid)
 
         is_unread = "UNREAD" in msg_data.get("labelIds", [])
         analysis  = analyze_phishing(subject, sender, analysis_body, reply_to)
@@ -494,7 +606,7 @@ def fetch_one_msg(mid, hdrs, user_email):
             else:
                 direction = "INCOMING"
 
-        return {
+        msg_dict = {
             "id":        mid,
             "threadId":  msg_data.get("threadId", ""),
             "messageId": message_id,
@@ -502,7 +614,10 @@ def fetch_one_msg(mid, hdrs, user_email):
             "sender":    sender,
             "recipient": recipient,
             "cc":        cc,
-            "date":      date,
+            "date":      date, # Retained for fallback
+            "gmail_internal_date": gmail_internal_date,
+            "original_date_header": date,
+            "analyzed_at": analyzed_at,
             "snippet":   snippet,
             "htmlBody":  html_body,
             "plainBody": plain_body,
@@ -513,8 +628,21 @@ def fetch_one_msg(mid, hdrs, user_email):
             "authResults": auth_res,
             "contentHash": content_hash,
             "attachments": attachments,
-            "geolocation": geo_info
         }
+        
+        print(f"\n[TIMESTAMP DEBUG] {mid}")
+        print(f"Message ID: {msg_dict['messageId']}")
+        print(f"Thread ID: {msg_dict['threadId']}")
+        print(f"Gmail internalDate: {msg_dict['gmail_internal_date']}")
+        print(f"Original Date header: {msg_dict['original_date_header']}")
+        print(f"SENT/INBOX labels: {msg_data.get('labelIds', [])}")
+        print(f"Detected direction: {msg_dict['direction']}")
+        print(f"Analyzed-at timestamp: {msg_dict['analyzed_at']}")
+        
+        if geo_info:
+            msg_dict.update(geo_info)
+            
+        return msg_dict
     except Exception as inner:
         print(f"Skipping message {mid}: {inner}")
         return None
@@ -523,16 +651,23 @@ def run_analysis_thread(run_id, access_token, user_email):
     run = ACTIVE_RUNS[run_id]
     hdrs = {"Authorization": f"Bearer {access_token}"}
     
-    discovered_ids = set()
+    if user_email not in USER_MAILBOX:
+        USER_MAILBOX[user_email] = {'messages': [], 'msg_ids': set()}
+        
+    mailbox = USER_MAILBOX[user_email]
+    existing_ids = mailbox['msg_ids']
+    
+    new_discovered_ids = set()
     page_token = ""
     
     # Discovered phase
-    MAX_EMAILS_TO_FETCH = 150  # Speed optimization: cap total emails fetched
+    MAX_EMAILS_TO_FETCH = 150  # Cap on initial load
+    
     while True:
         if USER_ACTIVE_RUN.get(user_email) != run_id:
             return
             
-        url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults={MAX_EMAILS_TO_FETCH}&q=in:all -in:spam -in:trash"
+        url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&q=in:all -in:spam -in:trash"
         if page_token:
             url += f"&pageToken={page_token}"
             
@@ -541,68 +676,89 @@ def run_analysis_thread(run_id, access_token, user_email):
             break
             
         data = resp.json()
-        for m in data.get("messages", []):
-            discovered_ids.add(m["id"])
-            if len(discovered_ids) >= MAX_EMAILS_TO_FETCH:
-                break
-                
-        if len(discovered_ids) >= MAX_EMAILS_TO_FETCH:
+        msgs = data.get("messages", [])
+        if not msgs:
+            break
+            
+        reached_known = False
+        for m in msgs:
+            mid = m["id"]
+            if mid in existing_ids:
+                reached_known = True
+                continue
+            new_discovered_ids.add(mid)
+            
+        # Stop paginating if we reached emails we already synced
+        if reached_known:
             break
             
         page_token = data.get("nextPageToken")
         if not page_token:
             break
             
-    run["discovered_count"] = len(discovered_ids)
-    run["unique_message_ids"] = len(discovered_ids)
+    run["discovered_count"] = len(new_discovered_ids)
+    run["unique_message_ids"] = len(new_discovered_ids) + len(existing_ids)
     run["status"] = "analyzing"
     
-    # Analysis phase
+    # Analysis phase - only for genuinely NEW messages
     def process_msg(mid):
         if USER_ACTIVE_RUN.get(user_email) != run_id:
             return None
-        if mid in ANALYSIS_CACHE:
-            run["cached_messages"] += 1
-            return ANALYSIS_CACHE[mid]
         res = fetch_one_msg(mid, hdrs, user_email)
         if res:
-            ANALYSIS_CACHE[mid] = res
-            run["newly_analyzed"] += 1
             return res
         return "FAILED"
         
+    new_messages = []
+    failed_count = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futs = [executor.submit(process_msg, mid) for mid in discovered_ids]
+        futs = [executor.submit(process_msg, mid) for mid in new_discovered_ids]
         for f in concurrent.futures.as_completed(futs):
             if USER_ACTIVE_RUN.get(user_email) != run_id:
                 break
             r = f.result()
             if r == "FAILED" or r is None:
-                run["analysis_failed"] += 1
+                failed_count += 1
             else:
-                run["total_analyzed"] += 1
-                if r["analysis"]["status"] == "SAFE":
-                    run["safe"] += 1
-                else:
-                    run["suspicious"] += 1
-                run["messages"].append(r)
+                new_messages.append(r)
                 
+    # Merge new messages into global mailbox
+    for m in new_messages:
+        mailbox['messages'].append(m)
+        mailbox['msg_ids'].add(m['id'])
+        
+    # Recalculate authoritative totals
+    total_safe = 0
+    total_suspicious = 0
+    for m in mailbox['messages']:
+        if m["analysis"]["status"] == "SAFE":
+            total_safe += 1
+        else:
+            total_suspicious += 1
+            
+    # Sort messages newest first by internalDate for deterministic chronological Gmail UI order
+    final_messages = sorted(mailbox['messages'], key=lambda x: int(x.get('gmail_internal_date', 0)), reverse=True)
+    
+    run["total_analyzed"] = len(final_messages)
+    run["safe"] = total_safe
+    run["suspicious"] = total_suspicious
+    run["analysis_failed"] = failed_count
+    run["messages"] = final_messages
     run["status"] = "complete"
     
-    print("\n========================================")
-    print("Mailbox synchronization complete")
-    print(f"Unique Gmail messages discovered: {run['unique_message_ids']}")
-    print(f"Successfully analyzed: {run['total_analyzed']}")
+    print("\n[GMAIL SYNC]")
+    print(f"Authenticated user: {user_email}")
+    print(f"Previous message count: {len(existing_ids)}")
+    print(f"Gmail messages discovered: {len(new_discovered_ids) + len(existing_ids)}")
+    print(f"New message IDs: {len(new_discovered_ids)}")
+    print(f"Already cached: {len(existing_ids)}")
+    print(f"Newly analyzed: {len(new_messages)}")
+    print(f"Failed: {failed_count}")
+    print(f"Final total: {run['total_analyzed']}")
     print(f"Safe: {run['safe']}")
     print(f"Suspicious: {run['suspicious']}")
-    print(f"Failed: {run['analysis_failed']}")
-    print(f"\nInternal Stats:")
-    print(f"discovered_from_gmail = {run['discovered_count']}")
-    print(f"cached_messages = {run['cached_messages']}")
-    print(f"newly_analyzed = {run['newly_analyzed']}")
     print(f"\nVerify:")
-    print(f"{run['total_analyzed']} == {run['safe']} + {run['suspicious']}")
-    print("========================================\n")
+    print(f"{run['total_analyzed']} == {run['safe']} + {run['suspicious']}\n")
 
 @app.route("/api/analysis/start", methods=["POST"])
 def api_analysis_start():
