@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard - CYBERTEX</title>
+  <title>Phishing Dashboard - CYBERTEX</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -32,17 +32,69 @@
       font-size: 15px;
       color: var(--color-text-muted);
     }
+    .email-list {
+      text-align: left;
+      margin-top: 20px;
+      margin-bottom: 20px;
+    }
+    .email-card {
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      background: white;
+      transition: transform 0.2s;
+    }
+    .email-card:hover {
+      transform: translateY(-2px);
+    }
+    .email-card.PHISHING { border-left: 5px solid #EA4335; background-color: #fcf4f4; }
+    .email-card.SUSPICIOUS { border-left: 5px solid #FBBC05; background-color: #fffaf0; }
+    .email-card.SAFE { border-left: 5px solid #34A853; }
+    .email-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .email-subject {
+      font-weight: 600;
+      font-size: 16px;
+      color: #1a1a1a;
+    }
+    .email-sender {
+      color: var(--color-text-muted);
+      font-size: 14px;
+    }
+    .tag {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .tag.PHISHING { background-color: #EA4335; color: white; }
+    .tag.SUSPICIOUS { background-color: #FBBC05; color: black; }
+    .tag.SAFE { background-color: #34A853; color: white; }
+    .analysis-box {
+      margin-top: 10px;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #eee;
+      font-size: 13px;
+    }
+    .score-high { color: #EA4335; font-weight: bold; }
+    .score-med { color: #F29900; font-weight: bold; }
+    .score-low { color: #34A853; font-weight: bold; }
   </style>
 </head>
 <body>
-  <!-- Background Watermark -->
   <div class="watermark" aria-hidden="true">CYBERTEX</div>
 
-  <main class="signin-container">
-    <div class="signin-card" style="text-align: center;">
+  <main class="signin-container" style="max-width: 900px; padding: 20px; width: 100%;">
+    <div class="signin-card" style="text-align: center; width: 100%; max-width: none;">
       <header class="signin-header">
-        <h1 class="signin-title">Welcome to CYBERTEX</h1>
-        <p class="signin-subtitle">You are successfully authenticated</p>
+        <h1 class="signin-title">CYBERTEX Phishing Radar</h1>
+        <p class="signin-subtitle">Scanning your incoming emails for threats in real-time</p>
       </header>
       
       <div id="profile-container" class="dashboard-profile" style="display: none;">
@@ -50,18 +102,24 @@
         <div id="profile-name" class="profile-name"></div>
         <div id="profile-email" class="profile-email"></div>
       </div>
-      <div id="loading-indicator" style="color: var(--color-text-muted); margin-bottom: 24px;">
-        Loading profile...
+      
+      <div id="loading-indicator" style="color: var(--color-text-muted); margin-bottom: 24px; font-weight: 500;">
+        <span class="btn-spinner" style="border-top-color: var(--color-primary); display: inline-block; width: 16px; height: 16px; margin-right: 8px;"></span>
+        Retrieving and analyzing your latest emails...
       </div>
 
-      <button id="signout-btn" class="signin-button" style="background-color: var(--color-error);">
+      <div id="email-list" class="email-list" style="display: none;">
+        <h3 style="margin-bottom: 15px; color: var(--color-text-navy); border-bottom: 1px solid #eee; padding-bottom: 8px;">Inbox Security Report</h3>
+        <div id="emails-container"></div>
+      </div>
+
+      <button id="signout-btn" class="signin-button" style="background-color: white; color: #EA4335; border: 1px solid #EA4335; max-width: 200px; margin: 0 auto; margin-top: 20px;">
         <span class="btn-text">Sign Out</span>
       </button>
     </div>
   </main>
 
   <script>
-    // Fetch user profile
     fetch('/api/me')
       .then(res => {
         if (!res.ok) {
@@ -71,8 +129,6 @@
         return res.json();
       })
       .then(data => {
-        document.getElementById('loading-indicator').style.display = 'none';
-        
         const profileContainer = document.getElementById('profile-container');
         profileContainer.style.display = 'flex';
         
@@ -84,10 +140,82 @@
         
         document.getElementById('profile-name').textContent = data.name || 'User';
         document.getElementById('profile-email').textContent = data.email || '';
+        
+        return fetchEmails();
       })
-      .catch(err => console.error(err));
+      .catch(err => {
+         console.error(err);
+         document.getElementById('loading-indicator').style.display = 'none';
+      });
 
-    // Handle sign out
+    // Function to fetch and render emails
+    function fetchEmails() {
+      fetch('/api/emails')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('loading-indicator').style.display = 'none';
+          
+          if (data.error) {
+             document.getElementById('emails-container').innerHTML = \`<div style="color:#EA4335; padding: 10px; background: #fcf4f4; border-radius: 4px; border: 1px solid #EA4335;">Failed to load emails: \${data.error}</div>\`;
+             document.getElementById('email-list').style.display = 'block';
+          } else {
+             const container = document.getElementById('emails-container');
+             document.getElementById('email-list').style.display = 'block';
+             
+             if (!data.emails || data.emails.length === 0) {
+               container.innerHTML = "<p style='color: #666;'>No recent emails found in your inbox.</p>";
+               return;
+             }
+             
+             // Clear container before rendering new ones
+             container.innerHTML = '';
+             
+             data.emails.forEach(email => {
+               const card = document.createElement('div');
+               const status = email.analysis.status; // SAFE, SUSPICIOUS, PHISHING
+               card.className = \`email-card \${status}\`;
+               
+               let scoreClass = 'score-low';
+               if(email.analysis.score >= 60) scoreClass = 'score-high';
+               else if(email.analysis.score >= 20) scoreClass = 'score-med';
+
+               let signsHtml = '';
+               if (email.analysis.signs.length > 0) {
+                   signsHtml = '<strong>Warning signs:</strong><ul>' + email.analysis.signs.map(s => \`<li>\${s}</li>\`).join('') + '</ul>';
+               }
+               
+               card.innerHTML = \`
+                  <div class="email-header">
+                    <div class="email-subject">\${email.subject}</div>
+                    <div><span class="tag \${status}">\${status}</span></div>
+                  </div>
+                  <div class="email-sender"><strong>From:</strong> \${email.sender.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                  <div class="email-sender"><strong>To:</strong> \${email.recipient.replace(/</g, '&lt;').replace(/>/g, '&gt;')} | <strong>Date:</strong> \${email.date}</div>
+                  
+                  <div style="margin-top: 10px; font-size: 14px; color: #333; background-color: #f4f6f8; padding: 10px; border-radius: 4px; border-left: 3px solid #ccc; max-height: 100px; overflow: hidden; text-overflow: ellipsis;">
+                    <strong>Body Preview:</strong><br>
+                    \${email.body.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                  </div>
+                  
+                  <div class="analysis-box">
+                    <div><strong>Risk Score:</strong> <span class="\${scoreClass}">\${email.analysis.score}/100</span></div>
+                    <div style="margin-top:4px;"><strong>Explanation:</strong> \${email.analysis.explanation}</div>
+                    <div style="margin-top:4px;">\${signsHtml}</div>
+                    <div style="margin-top:4px;"><strong>Recommended Action:</strong> \${email.analysis.action}</div>
+                  </div>
+               \`;
+               container.appendChild(card);
+             });
+          }
+        })
+        .catch(err => {
+           console.error("Error refreshing emails:", err);
+        });
+    }
+
+    // Refresh emails every 15 seconds for real-time updates
+    setInterval(fetchEmails, 15000);
+
     document.getElementById('signout-btn').addEventListener('click', () => {
       fetch('/api/auth/logout', { method: 'POST' })
         .then(() => {
