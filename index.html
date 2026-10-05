@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign In - CYBERTEX</title>
-  <meta name="description" content="Sign in to your CYBERTEX enterprise cybersecurity account securely.">
+  <title>CYBERTEX — Secure Access</title>
+  <meta name="description" content="Secure access to your workspace.">
 
-  <!-- Google Fonts: Inter (400, 500, 600) -->
+  <!-- Inter typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
 
   <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -17,25 +17,83 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Background Watermark -->
-  <div class="watermark" aria-hidden="true">CYBERTEX</div>
 
-  <!-- Main Sign-in Container -->
-  <main class="signin-container">
-    <div class="signin-card">
-      <header class="signin-header">
-        <h1 class="signin-title">Welcome to Cybertex</h1>
-        <p class="signin-subtitle">Sign in to your account</p>
-      </header>
+  <div class="split-layout">
+    
+    <!-- Left Panel -->
+    <div class="left-panel">
+      <!-- Circuit SVG Decoration -->
+      <svg class="circuit-bg circuit-tl" aria-hidden="true" viewBox="0 0 100 100" fill="none">
+        <path d="M 0 20 L 30 20 L 30 60 L 80 60" stroke="#D3E3F0" stroke-width="1.2" fill="none" />
+        <circle cx="80" cy="60" r="3" stroke="#A9C8DC" stroke-width="1.2" fill="#EAF2F9" />
+        <circle cx="30" cy="20" r="2" stroke="#A9C8DC" stroke-width="1.2" fill="#EAF2F9" />
+      </svg>
+      <svg class="circuit-bg circuit-br" aria-hidden="true" viewBox="0 0 100 100" fill="none">
+        <path d="M 100 80 L 70 80 L 70 40 L 20 40" stroke="#D3E3F0" stroke-width="1.2" fill="none" />
+        <circle cx="20" cy="40" r="3" stroke="#A9C8DC" stroke-width="1.2" fill="#EAF2F9" />
+        <circle cx="70" cy="80" r="2" stroke="#A9C8DC" stroke-width="1.2" fill="#EAF2F9" />
+      </svg>
 
-      <!-- Global Form Alert (for server/auth feedback) -->
-      <div id="form-alert" class="form-alert" role="alert" aria-live="polite" hidden></div>
-
-      <!-- Google Sign-In Button Container -->
-      <div id="google-button-container" style="display: flex; justify-content: center; width: 100%;"></div>
+      <div class="left-content">
+        <div class="brand-text">Cybertex</div>
+        <div class="brand-subtext">Secure access to<br>your workspace.</div>
+      </div>
     </div>
-  </main>
+
+    <!-- Right Panel -->
+    <div class="right-panel">
+      <a href="#" class="help-link">Help</a>
+      
+      <main class="right-content">
+        <div class="chip">
+          <span class="chip-dot"></span>Secure connection
+        </div>
+        
+        <h1>Welcome back</h1>
+        <p class="subtitle">Sign in with your Google account to continue to Cybertex.</p>
+
+        <!-- Error/status alert — required by script.js -->
+        <div id="form-alert" class="form-alert" role="alert" aria-live="polite" hidden></div>
+        
+        <!-- Google sign-in button slot — required by script.js -->
+        <div id="google-button-container" class="google-btn-slot"></div>
+
+        <p class="terms-text">By continuing, you agree to the <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.</p>
+      </main>
+
+      <footer class="footer">
+        <span>© 2026 Cybertex</span>
+        <span><a href="#">Privacy</a> · <a href="#">Terms</a></span>
+      </footer>
+    </div>
+  </div>
 
   <script src="script.js"></script>
+  
+  <script>
+    // Handle loading spinner on custom Google button click
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('#custom-google-btn');
+      if (btn) {
+        btn.classList.add('loading');
+        btn.disabled = true;
+      }
+    });
+    
+    // Remove loading state if auth fails and alert is shown
+    const observer = new MutationObserver(() => {
+       const btn = document.getElementById('custom-google-btn');
+       const alertBox = document.getElementById('form-alert');
+       if (btn && alertBox && alertBox.textContent.trim() !== "") {
+           btn.classList.remove('loading');
+           btn.disabled = false;
+       }
+    });
+    
+    const alertEl = document.getElementById('form-alert');
+    if (alertEl) {
+      observer.observe(alertEl, { childList: true, characterData: true, subtree: true });
+    }
+  </script>
 </body>
 </html>

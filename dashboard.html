@@ -863,6 +863,8 @@ function overlayClick(e){ if(e.target===document.getElementById('d-overlay'))clo
 
 /* ── Fetch emails ── */
 let isFetching = false;
+let currentRunId = null;
+
 async function fetchEmails(manual=false) {
   if(isFetching) return;
   isFetching = true;
@@ -874,65 +876,52 @@ async function fetchEmails(manual=false) {
       <div class="state-box">
         <div class="spinner"></div>
         <div class="state-title">Connecting to Gmail…</div>
-        <div class="state-msg" id="fetch-progress">Fetching message list...</div>
+        <div class="state-msg" id="fetch-progress">Initializing authoritative analysis run...</div>
       </div>
     `;
 
-    const res = await fetch('/api/emails/list?maxResults=150');
-    const data = await res.json();
-    
-    if(data.error) {
-      document.getElementById('email-list').innerHTML = `<div class="state-box"><div class="state-title">Error</div><div class="state-msg">${esc(data.error)}</div></div>`;
-      if(res.status===401) setTimeout(()=>location.href='/index.html',2000);
-      return;
+    const startRes = await fetch('/api/analysis/start', { method: 'POST' });
+    if (!startRes.ok) {
+      if(startRes.status===401) setTimeout(()=>location.href='/index.html',2000);
+      throw new Error('Failed to start analysis');
     }
+    const startData = await startRes.json();
+    currentRunId = startData.run_id;
     
-    const msgIds = data.messages || [];
-    if(msgIds.length === 0) {
-      document.getElementById('email-list').innerHTML = `<div class="state-box"><div class="state-title">No emails found</div></div>`;
-      return;
-    }
-
-    // Process in batches
-    allEmails = [];
-    const BATCH_SIZE = 15;
-    const total = msgIds.length;
-    let processed = 0;
-    
-    const pEl = document.getElementById('fetch-progress');
-    if(pEl) pEl.textContent = `Fetching emails: 0/${total}`;
-    
-    for (let i = 0; i < msgIds.length; i += BATCH_SIZE) {
-      const batchIds = msgIds.slice(i, i + BATCH_SIZE);
-      const bRes = await fetch('/api/emails/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: batchIds })
-      });
+    // Poll authoritative status
+    while (true) {
+      await new Promise(r => setTimeout(r, 1000));
+      if (currentRunId !== startData.run_id) return; // aborted by newer run
       
-      if(bRes.ok) {
-        const bData = await bRes.json();
-        const newEmails = bData.emails || [];
-        allEmails.push(...newEmails);
-        processed += batchIds.length;
-        
-        updateStats(allEmails);
-        renderList();
-        
-        // Show progress via a toast if it's taking a while, or just update the UI silently
-        if(pEl && i === 0) {
-           // once first batch renders, the spinner is gone because renderList() overwrites email-list
-           // so we use toast for subsequent progress
-           toast(`Analyzed ${processed} of ${total} emails...`, 1500);
-        } else if (i > 0) {
-           toast(`Analyzed ${processed} of ${total} emails...`, 1500);
-        }
+      const statusRes = await fetch('/api/analysis/status?run_id=' + currentRunId);
+      if (!statusRes.ok) break;
+      const st = await statusRes.json();
+      
+      const pEl = document.getElementById('fetch-progress');
+      if(st.status === 'discovering') {
+         if(pEl) pEl.textContent = `Discovering messages in mailbox... (${st.discovered} found)`;
+      } else if (st.status === 'analyzing') {
+         if(pEl) pEl.textContent = `Analyzing ${st.analyzed} / ${st.discovered} discovered messages...`;
+      } else if (st.status === 'complete') {
+         break;
       }
     }
     
-    if(manual) toast(`Refreshed – ${allEmails.length} emails loaded`);
+    // Fetch final frozen result
+    const resultRes = await fetch('/api/analysis/result?run_id=' + currentRunId);
+    if (!resultRes.ok) throw new Error('Failed to fetch results');
+    const resultData = await resultRes.json();
+    
+    allEmails = resultData.messages || [];
+    
+    // Derive all UI state from the single authoritative backend result array
+    updateStats(allEmails);
+    renderList();
+    
+    if(manual) toast(`Mailbox synchronized. ${resultData.total_analyzed} emails analyzed.`);
   } catch(err) {
     console.error(err);
+    document.getElementById('email-list').innerHTML = `<div class="state-box"><div class="state-title">Error</div><div class="state-msg">Failed to synchronize mailbox.</div></div>`;
     if(manual) toast('Network error. Please try again.');
   } finally {
     isFetching = false;

@@ -432,137 +432,236 @@ def api_geolocation(ip):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/emails/list")
-def api_emails_list():
-    if "access_token" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
+ANALYSIS_CACHE = {}
+ACTIVE_RUNS = {}
+USER_ACTIVE_RUN = {}
 
-    access_token = session["access_token"]
+def fetch_one_msg(mid, hdrs, user_email):
+    try:
+        msg_resp = requests.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}?format=full", headers=hdrs)
+        if not msg_resp.ok: return None
+        
+        msg_data = msg_resp.json()
+        payload  = msg_data.get("payload", {})
+        hdrs_map = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+
+        subject   = hdrs_map.get("subject", "(No Subject)")
+        sender    = hdrs_map.get("from",    "Unknown")
+        recipient = hdrs_map.get("to",      "")
+        cc        = hdrs_map.get("cc",      "")
+        date      = hdrs_map.get("date",    "")
+        reply_to  = hdrs_map.get("reply-to", "")
+        message_id = hdrs_map.get("message-id", "")
+        auth_res  = hdrs_map.get("authentication-results", "")
+
+        snippet   = html.unescape(msg_data.get("snippet", ""))
+        body_dict = extract_body(payload)
+        html_body = body_dict["html"]
+        plain_body = body_dict["plain"]
+        
+        analysis_body = plain_body
+        if not analysis_body and html_body:
+            import re as regex
+            analysis_body = regex.sub(r"(?i)<style.*?>.*?</style>", " ", html_body, flags=regex.DOTALL)
+            analysis_body = regex.sub(r"<[^>]+>", " ", analysis_body)
+        
+        analysis_body = (analysis_body.strip() or snippet)[:3000]
+        
+        content_hash = hashlib.sha256(analysis_body.encode("utf-8")).hexdigest()
+        attachments = extract_attachments(payload)
+        
+        ip, source, role = extract_ip(payload.get("headers", []))
+        geo_info = None
+        if ip:
+            geo_info = {
+                "ip": ip,
+                "source": source,
+                "role": role,
+                "geo": None
+            }
+
+        is_unread = "UNREAD" in msg_data.get("labelIds", [])
+        analysis  = analyze_phishing(subject, sender, analysis_body, reply_to)
+
+        direction = "UNKNOWN"
+        if user_email:
+            sender_l = sender.lower()
+            recipient_l = recipient.lower()
+            if user_email in sender_l and user_email in recipient_l:
+                direction = "REPLY"
+            elif user_email in sender_l:
+                direction = "OUTGOING"
+            else:
+                direction = "INCOMING"
+
+        return {
+            "id":        mid,
+            "threadId":  msg_data.get("threadId", ""),
+            "messageId": message_id,
+            "subject":   subject,
+            "sender":    sender,
+            "recipient": recipient,
+            "cc":        cc,
+            "date":      date,
+            "snippet":   snippet,
+            "htmlBody":  html_body,
+            "plainBody": plain_body,
+            "body":      analysis_body,
+            "isUnread":  is_unread,
+            "analysis":  analysis,
+            "direction": direction,
+            "authResults": auth_res,
+            "contentHash": content_hash,
+            "attachments": attachments,
+            "geolocation": geo_info
+        }
+    except Exception as inner:
+        print(f"Skipping message {mid}: {inner}")
+        return None
+
+def run_analysis_thread(run_id, access_token, user_email):
+    run = ACTIVE_RUNS[run_id]
     hdrs = {"Authorization": f"Bearer {access_token}"}
     
-    max_res = request.args.get("maxResults", "100")
-    page_token = request.args.get("pageToken", "")
-    url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults={max_res}"
-    if page_token:
-        url += f"&pageToken={page_token}"
+    discovered_ids = set()
+    page_token = ""
+    
+    # Discovered phase
+    MAX_EMAILS_TO_FETCH = 150  # Speed optimization: cap total emails fetched
+    while True:
+        if USER_ACTIVE_RUN.get(user_email) != run_id:
+            return
+            
+        url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults={MAX_EMAILS_TO_FETCH}&q=in:all -in:spam -in:trash"
+        if page_token:
+            url += f"&pageToken={page_token}"
+            
+        resp = requests.get(url, headers=hdrs)
+        if not resp.ok:
+            break
+            
+        data = resp.json()
+        for m in data.get("messages", []):
+            discovered_ids.add(m["id"])
+            if len(discovered_ids) >= MAX_EMAILS_TO_FETCH:
+                break
+                
+        if len(discovered_ids) >= MAX_EMAILS_TO_FETCH:
+            break
+            
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+            
+    run["discovered_count"] = len(discovered_ids)
+    run["unique_message_ids"] = len(discovered_ids)
+    run["status"] = "analyzing"
+    
+    # Analysis phase
+    def process_msg(mid):
+        if USER_ACTIVE_RUN.get(user_email) != run_id:
+            return None
+        if mid in ANALYSIS_CACHE:
+            run["cached_messages"] += 1
+            return ANALYSIS_CACHE[mid]
+        res = fetch_one_msg(mid, hdrs, user_email)
+        if res:
+            ANALYSIS_CACHE[mid] = res
+            run["newly_analyzed"] += 1
+            return res
+        return "FAILED"
         
-    resp = requests.get(url, headers=hdrs)
-    if resp.status_code == 401:
-        session.pop("access_token", None)
-        return jsonify({"error": "Session expired."}), 401
-    if not resp.ok:
-        return jsonify({"error": "Failed to contact Gmail API."}), 500
-        
-    data = resp.json()
-    return jsonify({
-        "messages": [m["id"] for m in data.get("messages", [])],
-        "nextPageToken": data.get("nextPageToken")
-    })
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futs = [executor.submit(process_msg, mid) for mid in discovered_ids]
+        for f in concurrent.futures.as_completed(futs):
+            if USER_ACTIVE_RUN.get(user_email) != run_id:
+                break
+            r = f.result()
+            if r == "FAILED" or r is None:
+                run["analysis_failed"] += 1
+            else:
+                run["total_analyzed"] += 1
+                if r["analysis"]["status"] == "SAFE":
+                    run["safe"] += 1
+                else:
+                    run["suspicious"] += 1
+                run["messages"].append(r)
+                
+    run["status"] = "complete"
+    
+    print("\n========================================")
+    print("Mailbox synchronization complete")
+    print(f"Unique Gmail messages discovered: {run['unique_message_ids']}")
+    print(f"Successfully analyzed: {run['total_analyzed']}")
+    print(f"Safe: {run['safe']}")
+    print(f"Suspicious: {run['suspicious']}")
+    print(f"Failed: {run['analysis_failed']}")
+    print(f"\nInternal Stats:")
+    print(f"discovered_from_gmail = {run['discovered_count']}")
+    print(f"cached_messages = {run['cached_messages']}")
+    print(f"newly_analyzed = {run['newly_analyzed']}")
+    print(f"\nVerify:")
+    print(f"{run['total_analyzed']} == {run['safe']} + {run['suspicious']}")
+    print("========================================\n")
 
-@app.route("/api/emails/batch", methods=["POST"])
-def api_emails_batch():
+@app.route("/api/analysis/start", methods=["POST"])
+def api_analysis_start():
     if "access_token" not in session:
         return jsonify({"error": "Unauthorized"}), 401
-
-    access_token = session["access_token"]
-    hdrs = {"Authorization": f"Bearer {access_token}"}
-    
-    msg_ids = request.json.get("ids", [])
-    if not msg_ids: return jsonify({"emails": []})
-    
     user_email = session.get("user", {}).get("email", "").lower()
     
-    def fetch_one(mid):
-        try:
-            msg_resp = requests.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}?format=full", headers=hdrs)
-            if not msg_resp.ok: return None
-            
-            msg_data = msg_resp.json()
-            payload  = msg_data.get("payload", {})
-            hdrs_map = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+    import uuid
+    import threading
+    run_id = str(uuid.uuid4())
+    USER_ACTIVE_RUN[user_email] = run_id
+    ACTIVE_RUNS[run_id] = {
+        "status": "discovering",
+        "discovered_count": 0,
+        "total_analyzed": 0,
+        "analysis_failed": 0,
+        "safe": 0,
+        "suspicious": 0,
+        "messages": [],
+        "unique_message_ids": 0,
+        "newly_analyzed": 0,
+        "cached_messages": 0
+    }
+    
+    threading.Thread(target=run_analysis_thread, args=(run_id, session["access_token"], user_email)).start()
+    return jsonify({"run_id": run_id})
 
-            subject   = hdrs_map.get("subject", "(No Subject)")
-            sender    = hdrs_map.get("from",    "Unknown")
-            recipient = hdrs_map.get("to",      "")
-            cc        = hdrs_map.get("cc",      "")
-            date      = hdrs_map.get("date",    "")
-            reply_to  = hdrs_map.get("reply-to", "")
-            message_id = hdrs_map.get("message-id", "")
-            auth_res  = hdrs_map.get("authentication-results", "")
-
-            snippet   = html.unescape(msg_data.get("snippet", ""))
-            body_dict = extract_body(payload)
-            html_body = body_dict["html"]
-            plain_body = body_dict["plain"]
-            
-            analysis_body = plain_body
-            if not analysis_body and html_body:
-                import re as regex
-                analysis_body = regex.sub(r"(?i)<style.*?>.*?</style>", " ", html_body, flags=regex.DOTALL)
-                analysis_body = regex.sub(r"<[^>]+>", " ", analysis_body)
-            
-            analysis_body = (analysis_body.strip() or snippet)[:3000]
-            
-            content_hash = hashlib.sha256(analysis_body.encode("utf-8")).hexdigest()
-            attachments = extract_attachments(payload)
-            
-            ip, source, role = extract_ip(payload.get("headers", []))
-            geo_info = None
-            if ip:
-                geo_info = {
-                    "ip": ip,
-                    "source": source,
-                    "role": role,
-                    "geo": None
-                }
-
-            is_unread = "UNREAD" in msg_data.get("labelIds", [])
-            analysis  = analyze_phishing(subject, sender, analysis_body, reply_to)
-
-            direction = "UNKNOWN"
-            if user_email:
-                sender_l = sender.lower()
-                recipient_l = recipient.lower()
-                if user_email in sender_l and user_email in recipient_l:
-                    direction = "REPLY"
-                elif user_email in sender_l:
-                    direction = "OUTGOING"
-                else:
-                    direction = "INCOMING"
-
-            return {
-                "id":        mid,
-                "threadId":  msg_data.get("threadId", ""),
-                "messageId": message_id,
-                "subject":   subject,
-                "sender":    sender,
-                "recipient": recipient,
-                "cc":        cc,
-                "date":      date,
-                "snippet":   snippet,
-                "htmlBody":  html_body,
-                "plainBody": plain_body,
-                "body":      analysis_body,
-                "isUnread":  is_unread,
-                "analysis":  analysis,
-                "direction": direction,
-                "authResults": auth_res,
-                "contentHash": content_hash,
-                "attachments": attachments,
-                "geolocation": geo_info
-            }
-        except Exception as inner:
-            print(f"Skipping message {mid}: {inner}")
-            return None
-
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futs = [executor.submit(fetch_one, mid) for mid in msg_ids]
-        for f in concurrent.futures.as_completed(futs):
-            r = f.result()
-            if r: results.append(r)
-            
-    return jsonify({"emails": results})
+@app.route("/api/analysis/status")
+def api_analysis_status():
+    if "access_token" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    run_id = request.args.get("run_id")
+    run = ACTIVE_RUNS.get(run_id)
+    if not run:
+        return jsonify({"error": "Run not found"}), 404
+        
+    return jsonify({
+        "status": run["status"],
+        "discovered": run["discovered_count"],
+        "analyzed": run["total_analyzed"],
+        "failed": run["analysis_failed"]
+    })
+    
+@app.route("/api/analysis/result")
+def api_analysis_result():
+    if "access_token" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    run_id = request.args.get("run_id")
+    run = ACTIVE_RUNS.get(run_id)
+    if not run or run["status"] != "complete":
+        return jsonify({"error": "Run not complete or not found"}), 400
+        
+    return jsonify({
+        "total_analyzed": run["total_analyzed"],
+        "suspicious": run["suspicious"],
+        "safe": run["safe"],
+        "analysis_failed": run["analysis_failed"],
+        "messages": run["messages"]
+    })
 
 @app.route("/api/emails/<msg_id>/raw")
 def api_email_raw(msg_id):

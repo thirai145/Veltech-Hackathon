@@ -1,461 +1,299 @@
-/* ==========================================================================
-   CYBERTEX - Enterprise Cybersecurity Sign-In Page
-   Strict 8px grid, WCAG AA compliant, calm minimal palette
-   ========================================================================== */
+/* ============================================================
+   CYBERTEX — Flat Enterprise Split Layout
+   ============================================================ */
 
-:root {
-  /* Palette */
-  --color-bg: #EEF4FB;
-  --color-card-bg: #FFFFFF;
-  --color-light-grey: #F5F7FA;
-  --color-border: #DDE5EE;
-  --color-border-hover: #BCCBDC;
-  --color-accent: #CFE0F5;
-  --color-button: #4A6FA5;
-  --color-button-hover: #3F6296;
-  --color-text-navy: #1F2D44;
-  --color-text-muted: #6B7A90;
-  --color-error: #C0392B;
-  --color-error-bg: #FDF4F4;
-  --color-error-border: #F3CECE;
-  --color-focus-ring: rgba(74, 111, 165, 0.15);
-  --color-error-ring: rgba(192, 57, 43, 0.15);
-
-  /* Typography */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-size-heading: 24px;
-  --font-size-subtitle: 15px;
-  --font-size-label: 14px;
-  --font-size-input: 15px;
-  --font-size-button: 15px;
-  --font-size-error: 13px;
-
-  /* Spacing Grid (8px baseline) */
-  --space-4: 4px;
-  --space-8: 8px;
-  --space-12: 12px;
-  --space-16: 16px;
-  --space-20: 20px;
-  --space-24: 24px;
-  --space-32: 32px;
-  --space-40: 40px;
-
-  /* Component Dimensions & Radii */
-  --card-max-width: 400px;
-  --radius-card: 12px;
-  --radius-input: 8px;
-  --radius-button: 8px;
-  --control-height: 44px;
-
-  /* Shadows & Transitions */
-  --shadow-card: 0 4px 16px rgba(31, 45, 68, 0.06);
-  --transition-duration: 150ms;
-}
-
-/* --------------------------------------------------------------------------
-   Reset & Base Styles
-   -------------------------------------------------------------------------- */
-*, *::before, *::after {
+* {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-html, body {
-  width: 100%;
-  min-height: 100%;
-}
-
 body {
-  font-family: var(--font-family);
-  background-color: var(--color-bg); /* Strict flat color, no gradients */
-  color: var(--color-text-navy);
-  line-height: 1.5;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #14263D;
+  background: #FFFFFF;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
+  height: 100vh;
+  overflow: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ═══════════════════════════════════════════════
+   LAYOUT
+   ═══════════════════════════════════════════════ */
+.split-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ═══════════════════════════════════════════════
+   LEFT PANEL
+   ═══════════════════════════════════════════════ */
+.left-panel {
+  flex: 1;
+  background: #EAF2F9;
   position: relative;
-}
-
-/* --------------------------------------------------------------------------
-   Watermark
-   Centered behind card, 18vw, 5-6% opacity, non-interactive, no overflow
-   -------------------------------------------------------------------------- */
-.watermark {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 18vw;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-button);
-  opacity: 0.055; /* 5.5% opacity */
-  user-select: none;
-  -webkit-user-select: none;
-  pointer-events: none;
-  z-index: 0;
-  white-space: nowrap;
-  line-height: 1;
-}
-
-/* --------------------------------------------------------------------------
-   Layout & Sign-In Card
-   -------------------------------------------------------------------------- */
-.signin-container {
-  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-16);
+  overflow: hidden;
+}
+
+.left-content {
   position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 400px;
+  padding: 0 40px;
+}
+
+.brand-text {
+  font-size: 48px;
+  font-weight: 500;
+  color: #2F5C9E;
+  letter-spacing: -0.5px;
+  margin-bottom: 12px;
+}
+
+.brand-subtext {
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: #33506B;
+}
+
+/* Left Panel Decoration */
+.circuit-bg {
+  position: absolute;
+  width: 250px;
+  height: 250px;
   z-index: 1;
 }
-
-.signin-card {
-  width: 100%;
-  max-width: var(--card-max-width);
-  background-color: var(--color-card-bg);
-  border-radius: var(--radius-card);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-40);
+.circuit-tl {
+  top: 40px;
+  left: 40px;
+}
+.circuit-br {
+  bottom: 40px;
+  right: 40px;
 }
 
-/* --------------------------------------------------------------------------
-   Header
-   -------------------------------------------------------------------------- */
-.signin-header {
-  margin-bottom: var(--space-32);
-}
-
-.signin-title {
-  font-size: var(--font-size-heading);
-  font-weight: 600;
-  color: var(--color-text-navy);
-  line-height: 1.25;
-  margin-bottom: var(--space-8);
-  letter-spacing: -0.015em;
-}
-
-.signin-subtitle {
-  font-size: var(--font-size-subtitle);
-  color: var(--color-text-muted);
-  line-height: 1.4;
-}
-
-/* --------------------------------------------------------------------------
-   Form Global Alert
-   -------------------------------------------------------------------------- */
-.form-alert {
-  font-size: var(--font-size-error);
-  color: var(--color-error);
-  background-color: var(--color-error-bg);
-  border: 1px solid var(--color-error-border);
-  border-radius: var(--radius-input);
-  padding: var(--space-8) var(--space-12);
-  margin-bottom: var(--space-20);
-  line-height: 1.4;
-  text-align: left;
-}
-
-.form-alert[hidden] {
-  display: none;
-}
-
-/* --------------------------------------------------------------------------
-   Form Controls & Groups
-   -------------------------------------------------------------------------- */
-.signin-form {
-  display: flex;
-  flex-direction: column;
-}
-
-.form-group {
-  margin-bottom: var(--space-20);
-  display: flex;
-  flex-direction: column;
-}
-
-.form-label {
-  display: block;
-  font-size: var(--font-size-label);
-  font-weight: 500;
-  color: var(--color-text-navy);
-  margin-bottom: var(--space-8);
-  line-height: 1.3;
-}
-
-/* Input Fields */
-.form-input {
-  width: 100%;
-  height: var(--control-height);
-  border-radius: var(--radius-input);
-  border: 1px solid var(--color-border);
-  background-color: var(--color-card-bg);
-  padding: 0 var(--space-12);
-  font-family: inherit;
-  font-size: var(--font-size-input);
-  color: var(--color-text-navy);
-  outline: none;
-  transition: border-color var(--transition-duration) ease, box-shadow var(--transition-duration) ease;
-}
-
-.form-input::placeholder {
-  color: var(--color-text-muted);
-  opacity: 0.8;
-}
-
-/* Standard Focus */
-.form-input:focus {
-  border-color: var(--color-button);
-  box-shadow: 0 0 0 3px var(--color-focus-ring);
-}
-
-/* Invalid State */
-.form-input.is-invalid {
-  border-color: var(--color-error);
-}
-
-.form-input.is-invalid:focus {
-  border-color: var(--color-error);
-  box-shadow: 0 0 0 3px var(--color-error-ring);
-}
-
-/* Password Input with Embedded Toggle Button */
-.password-input-wrapper {
+/* ═══════════════════════════════════════════════
+   RIGHT PANEL
+   ═══════════════════════════════════════════════ */
+.right-panel {
+  flex: 1;
+  background: #FFFFFF;
   position: relative;
-  width: 100%;
-}
-
-.password-input-wrapper .form-input {
-  padding-right: 44px; /* Ensure typed characters never overlap toggle icon */
-}
-
-.password-toggle {
-  position: absolute;
-  right: var(--space-8);
-  top: 50%;
-  transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  padding: 0;
-  border-radius: 4px;
-  cursor: pointer;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-muted);
-  transition: color var(--transition-duration) ease;
 }
 
-.password-toggle:hover {
-  color: var(--color-text-navy);
+.help-link {
+  position: absolute;
+  top: 24px;
+  right: 32px;
+  font-size: 13px;
+  color: #5B6B7F;
 }
 
-.password-toggle:focus-visible {
-  outline: 2px solid var(--color-button);
-  outline-offset: 2px;
-  color: var(--color-text-navy);
+.right-content {
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
 }
 
-.toggle-icon {
+/* Chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #E4F4F2;
+  border: 1px solid #BFE3DF;
+  border-radius: 9999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #0B7A75;
+  margin-bottom: 24px;
+}
+.chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1FA37A;
+}
+
+/* Typography */
+h1 {
+  font-size: 28px;
+  font-weight: 500;
+  color: #14263D;
+  margin-bottom: 24px;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: #5B6B7F;
+  margin-bottom: 32px;
+}
+
+/* Alert */
+.form-alert {
+  background: #fee2e2;
+  border: 1px solid #f87171;
+  color: #991b1b;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+/* ═══════════════════════════════════════════════
+   GOOGLE BUTTON STYLING (OVERRIDING script.js)
+   ═══════════════════════════════════════════════ */
+.google-btn-slot {
+  width: 100%;
+}
+
+/* Target the button generated by script.js */
+#custom-google-btn {
+  width: 100% !important;
+  height: 48px !important;
+  border-radius: 8px !important;
+  background: #FFFFFF !important;
+  border: 1px solid #C9D8E6 !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  cursor: pointer !important;
+  transition: background 0.15s, border 0.15s, outline 0.1s !important;
+  position: relative;
+}
+
+#custom-google-btn:hover {
+  background: #F5F9FC !important;
+  border-color: #A9C0D6 !important;
+}
+
+#custom-google-btn:focus-visible {
+  outline: 2px solid #2F5C9E !important;
+  outline-offset: 2px !important;
+}
+
+/* Resize the injected SVG */
+#custom-google-btn svg {
+  width: 20px !important;
+  height: 20px !important;
+  display: block !important;
+  position: relative !important;
+}
+
+/* Use pseudo-element to display "Continue with Google" */
+#custom-google-btn::after {
+  content: "Continue with Google";
+  font-size: 15px;
+  font-weight: 500;
+  color: #1F2937;
+}
+
+/* Loading State for Button */
+#custom-google-btn.loading {
+  pointer-events: none;
+}
+#custom-google-btn.loading svg {
+  display: none !important;
+}
+#custom-google-btn.loading::after {
+  content: "";
   width: 18px;
   height: 18px;
-  display: block;
-}
-
-.toggle-icon.hidden {
-  display: none;
-}
-
-/* Field Error Messages */
-.field-error {
-  font-size: var(--font-size-error);
-  color: var(--color-error);
-  line-height: 1.35;
-  margin-top: 6px;
-  min-height: 0;
-}
-
-.field-error:empty {
-  display: none;
-}
-
-/* --------------------------------------------------------------------------
-   Submit Button
-   -------------------------------------------------------------------------- */
-.signin-button {
-  width: 100%;
-  height: var(--control-height);
-  margin-top: var(--space-4);
-  background-color: var(--color-button);
-  color: #FFFFFF;
-  border: none;
-  border-radius: var(--radius-button);
-  font-family: inherit;
-  font-size: var(--font-size-button);
-  font-weight: 500;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-8);
-  transition: background-color var(--transition-duration) ease;
-  user-select: none;
-}
-
-.signin-button:hover:not(:disabled) {
-  background-color: var(--color-button-hover);
-}
-
-.signin-button:focus-visible {
-  outline: 2px solid var(--color-text-navy);
-  outline-offset: 2px;
-}
-
-.signin-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.85;
-}
-
-/* --------------------------------------------------------------------------
-   Loading Spinner (Disabled state only, no extra decoration)
-   -------------------------------------------------------------------------- */
-.btn-spinner {
-  display: none;
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #FFFFFF;
+  border: 2px solid #C9D8E6;
+  border-top-color: #2F5C9E;
   border-radius: 50%;
-  animation: btn-spin 0.75s linear infinite;
-}
-
-.signin-button.is-loading .btn-spinner {
+  animation: spin 0.8s linear infinite;
   display: inline-block;
+  margin: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-@keyframes btn-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* --------------------------------------------------------------------------
-   Divider (OR)
-   -------------------------------------------------------------------------- */
-.divider {
-  display: flex;
-  align-items: center;
+/* ═══════════════════════════════════════════════
+   BOTTOM LINKS & FOOTER
+   ═══════════════════════════════════════════════ */
+.terms-text {
+  font-size: 12px;
+  color: #8895A7;
   text-align: center;
-  margin: 20px 0;
+  margin-top: 12px;
+}
+.terms-text a {
+  text-decoration: underline;
 }
 
-.divider::before,
-.divider::after {
-  content: "";
-  flex: 1;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.divider-text {
-  padding: 0 var(--space-12);
-  color: var(--color-text-muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* --------------------------------------------------------------------------
-   Google Sign-In Button
-   -------------------------------------------------------------------------- */
-.google-button {
-  width: 100%;
-  height: var(--control-height);
-  background-color: #FFFFFF;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-button);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  cursor: pointer;
-  transition: background-color var(--transition-duration) ease, border-color var(--transition-duration) ease;
-  user-select: none;
-}
-
-.google-button:hover:not(:disabled) {
-  background-color: var(--color-light-grey);
-  border-color: var(--color-border-hover);
-}
-
-.google-button:focus-visible {
-  outline: 2px solid var(--color-text-navy);
-  outline-offset: 2px;
-}
-
-.google-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.85;
-}
-
-.google-icon-wrapper {
+.footer {
   position: absolute;
-  left: 14px;
+  bottom: 24px;
+  left: 32px;
+  right: 32px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #8895A7;
 }
 
-.google-icon {
-  width: 20px;
-  height: 20px;
-}
-
-.google-btn-text {
-  font-family: inherit;
-  font-size: var(--font-size-button);
-  font-weight: 500;
-  color: #3C4043; /* Standard Google text color */
-}
-
-/* --------------------------------------------------------------------------
-   Responsive Breakpoints
-   -------------------------------------------------------------------------- */
-@media (max-width: 480px) {
-  .signin-container {
-    padding: var(--space-16);
+/* ═══════════════════════════════════════════════
+   RESPONSIVE DESIGN (< 900px)
+   ═══════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  body {
+    overflow-y: auto;
   }
-
-  .signin-card {
-    padding: var(--space-24);
+  .split-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
   }
-
-  .signin-header {
-    margin-bottom: var(--space-24);
+  .left-panel {
+    flex: none;
+    height: 180px;
+    padding: 0;
   }
-
-  .watermark {
-    font-size: 22vw;
+  .left-content {
+    padding: 0 24px;
   }
-}
-
-/* Respect reduced motion preferences */
-@media (prefers-reduced-motion: reduce) {
-  .btn-spinner {
-    animation-duration: 1.5s;
+  .circuit-bg {
+    display: none; /* Hide decorations on mobile banner */
   }
-  .signin-button,
-  .form-input,
-  .password-toggle {
-    transition: none;
+  .right-panel {
+    flex: 1;
+    justify-content: flex-start;
+    padding-top: 40px;
+  }
+  .help-link {
+    top: 16px;
+    right: 24px;
+  }
+  .footer {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    width: 100%;
+    padding: 24px;
+    margin-top: auto;
   }
 }
