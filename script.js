@@ -5,42 +5,7 @@
 const AUTH_ENDPOINT = "/api/auth/login";
 const GOOGLE_AUTH_ENDPOINT = "/api/auth/google";
 
-const form = document.getElementById("signin-form");
-const emailInput = document.getElementById("email");
-const passwordInput = document.getElementById("password");
-const emailError = document.getElementById("email-error");
-const passwordError = document.getElementById("password-error");
 const formAlert = document.getElementById("form-alert");
-const submitBtn = document.getElementById("submit-btn");
-const btnText = submitBtn.querySelector(".btn-text");
-const passwordToggle = document.getElementById("password-toggle");
-const eyeIcon = document.getElementById("eye-icon");
-const eyeOffIcon = document.getElementById("eye-off-icon");
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function togglePasswordVisibility() {
-  const isCurrentlyPassword = passwordInput.getAttribute("type") === "password";
-  if (isCurrentlyPassword) {
-    passwordInput.setAttribute("type", "text");
-    eyeIcon.classList.add("hidden");
-    eyeOffIcon.classList.remove("hidden");
-  } else {
-    passwordInput.setAttribute("type", "password");
-    eyeIcon.classList.remove("hidden");
-    eyeOffIcon.classList.add("hidden");
-  }
-}
-
-function showFieldError(inputEl, errorEl, message) {
-  inputEl.classList.add("is-invalid");
-  errorEl.textContent = message;
-}
-
-function clearFieldError(inputEl, errorEl) {
-  inputEl.classList.remove("is-invalid");
-  errorEl.textContent = "";
-}
 
 function showFormAlert(message) {
   formAlert.textContent = message;
@@ -51,28 +16,6 @@ function clearFormAlert() {
   formAlert.textContent = "";
   formAlert.setAttribute("hidden", "");
 }
-
-function setLoading(isLoading) {
-  if (isLoading) {
-    submitBtn.disabled = true;
-    submitBtn.classList.add("is-loading");
-    btnText.textContent = "Signing in…";
-  } else {
-    submitBtn.disabled = false;
-    submitBtn.classList.remove("is-loading");
-    btnText.textContent = "Sign In";
-  }
-}
-
-async function handleFormSubmit(e) {
-  e.preventDefault();
-  clearFormAlert();
-  // Standard sign-in is disabled for the hackathon demo, prioritizing Google Sign-In
-  showFormAlert("Please use 'Sign in with Google' to access the CYBERTEX Phishing Radar.");
-}
-
-form.addEventListener("submit", handleFormSubmit);
-passwordToggle.addEventListener("click", togglePasswordVisibility);
 
 /* ==========================================================================
    Google Identity Services (GIS) Integration (OAuth2 Code Flow)
