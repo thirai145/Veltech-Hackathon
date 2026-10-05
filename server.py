@@ -554,7 +554,9 @@ USER_ACTIVE_RUN = {}
 USER_MAILBOX = {}  # user_email -> { 'messages': [], 'msg_ids': set() }
 
 def fetch_one_msg(mid, hdrs, user_email):
+    t_start = time.time()
     try:
+        t0 = time.time()
         msg_resp = requests.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}?format=full", headers=hdrs)
         if not msg_resp.ok: return None
         
@@ -573,7 +575,9 @@ def fetch_one_msg(mid, hdrs, user_email):
         
         gmail_internal_date = msg_data.get("internalDate", "0")
         analyzed_at = int(time.time() * 1000)
+        t_retrieval = (time.time() - t0) * 1000
 
+        t0 = time.time()
         snippet   = html.unescape(msg_data.get("snippet", ""))
         body_dict = extract_body(payload)
         html_body = body_dict["html"]
@@ -589,11 +593,16 @@ def fetch_one_msg(mid, hdrs, user_email):
         
         content_hash = hashlib.sha256(analysis_body.encode("utf-8")).hexdigest()
         attachments = extract_attachments(payload)
+        t_mime = (time.time() - t0) * 1000
         
+        t0 = time.time()
         geo_info = extract_and_geolocate_ip(payload.get("headers", []), message_id or mid)
+        t_geo = (time.time() - t0) * 1000
 
+        t0 = time.time()
         is_unread = "UNREAD" in msg_data.get("labelIds", [])
         analysis  = analyze_phishing(subject, sender, analysis_body, reply_to)
+        t_sec = (time.time() - t0) * 1000
 
         direction = "UNKNOWN"
         if user_email:
@@ -642,6 +651,14 @@ def fetch_one_msg(mid, hdrs, user_email):
         if geo_info:
             msg_dict.update(geo_info)
             
+        t_total = (time.time() - t_start) * 1000
+        print(f"\n[GMAIL PERF]")
+        print(f"message retrieval: {t_retrieval:.0f} ms")
+        print(f"MIME parsing: {t_mime:.0f} ms")
+        print(f"geolocation: {t_geo:.0f} ms")
+        print(f"security analysis: {t_sec:.0f} ms")
+        print(f"total: {t_total:.0f} ms")
+            
         return msg_dict
     except Exception as inner:
         print(f"Skipping message {mid}: {inner}")
@@ -661,7 +678,7 @@ def run_analysis_thread(run_id, access_token, user_email):
     page_token = ""
     
     # Discovered phase
-    MAX_EMAILS_TO_FETCH = 150  # Cap on initial load
+    t_list_start = time.time()
     
     while True:
         if USER_ACTIVE_RUN.get(user_email) != run_id:
@@ -696,6 +713,9 @@ def run_analysis_thread(run_id, access_token, user_email):
         if not page_token:
             break
             
+    t_list_end = time.time()
+    print(f"\n[GMAIL PERF]\nlist: {(t_list_end - t_list_start) * 1000:.0f} ms")
+            
     run["discovered_count"] = len(new_discovered_ids)
     run["unique_message_ids"] = len(new_discovered_ids) + len(existing_ids)
     run["status"] = "analyzing"
@@ -719,31 +739,27 @@ def run_analysis_thread(run_id, access_token, user_email):
             r = f.result()
             if r == "FAILED" or r is None:
                 failed_count += 1
+                run["analysis_failed"] = failed_count
             else:
                 new_messages.append(r)
+                mailbox['messages'].append(r)
+                mailbox['msg_ids'].add(r['id'])
                 
-    # Merge new messages into global mailbox
-    for m in new_messages:
-        mailbox['messages'].append(m)
-        mailbox['msg_ids'].add(m['id'])
-        
-    # Recalculate authoritative totals
-    total_safe = 0
-    total_suspicious = 0
-    for m in mailbox['messages']:
-        if m["analysis"]["status"] == "SAFE":
-            total_safe += 1
-        else:
-            total_suspicious += 1
-            
-    # Sort messages newest first by internalDate for deterministic chronological Gmail UI order
-    final_messages = sorted(mailbox['messages'], key=lambda x: int(x.get('gmail_internal_date', 0)), reverse=True)
-    
-    run["total_analyzed"] = len(final_messages)
-    run["safe"] = total_safe
-    run["suspicious"] = total_suspicious
-    run["analysis_failed"] = failed_count
-    run["messages"] = final_messages
+                # Progressive updates for UI
+                total_s = 0
+                total_sp = 0
+                for m in mailbox['messages']:
+                    if m["analysis"]["status"] == "SAFE": total_s += 1
+                    else: total_sp += 1
+                
+                run["safe"] = total_s
+                run["suspicious"] = total_sp
+                
+                # Keep sorted in memory
+                mailbox['messages'].sort(key=lambda x: int(x.get('gmail_internal_date', 0)), reverse=True)
+                run["messages"] = mailbox['messages']
+                run["total_analyzed"] = len(mailbox['messages'])
+                
     run["status"] = "complete"
     
     print("\n[GMAIL SYNC]")
@@ -808,8 +824,8 @@ def api_analysis_result():
         return jsonify({"error": "Unauthorized"}), 401
     run_id = request.args.get("run_id")
     run = ACTIVE_RUNS.get(run_id)
-    if not run or run["status"] != "complete":
-        return jsonify({"error": "Run not complete or not found"}), 400
+    if not run:
+        return jsonify({"error": "Run not found"}), 400
         
     return jsonify({
         "total_analyzed": run["total_analyzed"],

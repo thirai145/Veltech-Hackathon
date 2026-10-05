@@ -892,8 +892,29 @@ async function fetchEmails(manual=false) {
       if(st.status === 'discovering') {
          if(pEl) pEl.textContent = `Discovering messages in mailbox... (${st.discovered} found)`;
       } else if (st.status === 'analyzing') {
-         if(pEl) pEl.textContent = `Analyzing ${st.analyzed} / ${st.discovered} discovered messages...`;
+         
+         // Progressive UI rendering
+         const partRes = await fetch('/api/analysis/result?run_id=' + currentRunId);
+         if(partRes.ok) {
+            const pd = await partRes.json();
+            allEmails = pd.messages || [];
+            updateStats(allEmails);
+            renderList();
+         }
+         
+         let progBox = document.getElementById('floating-progress');
+         if (!progBox) {
+             progBox = document.createElement('div');
+             progBox.id = 'floating-progress';
+             progBox.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#2F5C9E; color:#fff; padding:12px 20px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:9999; font-size:13px; font-weight:500; display:flex; align-items:center; gap:10px;';
+             progBox.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></div><span id="fp-text"></span>';
+             document.body.appendChild(progBox);
+         }
+         document.getElementById('fp-text').textContent = `Analyzing ${st.analyzed} / ${st.discovered} discovered messages...`;
+         
       } else if (st.status === 'complete') {
+         let progBox = document.getElementById('floating-progress');
+         if (progBox) progBox.remove();
          break;
       }
     }
