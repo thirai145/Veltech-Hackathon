@@ -12,6 +12,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+http_adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
+http_session = requests.Session()
+http_session.mount('https://', http_adapter)
+http_session.mount('http://', http_adapter)
+
 app = Flask(__name__, static_folder=".", static_url_path="")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_secret_key_123")
 app.config.update(
@@ -401,7 +406,7 @@ IPINFO_TOKEN = os.environ.get("IPINFO_TOKEN", "5cf617e03d02ec")
 
 def get_geolocation_raw(ip):
     try:
-        r = requests.get(f"https://ipinfo.io/{ip}/json?token={IPINFO_TOKEN}", timeout=2)
+        r = http_session.get(f"https://ipinfo.io/{ip}/json?token={IPINFO_TOKEN}", timeout=2)
         if r.ok:
             d = r.json()
             if d.get("bogon"):
@@ -557,7 +562,7 @@ def fetch_one_msg(mid, hdrs, user_email):
     t_start = time.time()
     try:
         t0 = time.time()
-        msg_resp = requests.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}?format=full", headers=hdrs)
+        msg_resp = http_session.get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}?format=full", headers=hdrs)
         if not msg_resp.ok: return None
         
         msg_data = msg_resp.json()
@@ -684,11 +689,11 @@ def run_analysis_thread(run_id, access_token, user_email):
         if USER_ACTIVE_RUN.get(user_email) != run_id:
             return
             
-        url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&q=in:all -in:spam -in:trash"
+        url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=300&q=in:all -in:spam -in:trash"
         if page_token:
             url += f"&pageToken={page_token}"
             
-        resp = requests.get(url, headers=hdrs)
+        resp = http_session.get(url, headers=hdrs)
         if not resp.ok:
             break
             
@@ -704,9 +709,12 @@ def run_analysis_thread(run_id, access_token, user_email):
                 reached_known = True
                 continue
             new_discovered_ids.add(mid)
+            if len(new_discovered_ids) >= 300:
+                reached_known = True
+                break
             
         # Stop paginating if we reached emails we already synced
-        if reached_known:
+        if reached_known or len(new_discovered_ids) >= 300:
             break
             
         page_token = data.get("nextPageToken")
@@ -731,7 +739,7 @@ def run_analysis_thread(run_id, access_token, user_email):
         
     new_messages = []
     failed_count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
         futs = [executor.submit(process_msg, mid) for mid in new_discovered_ids]
         for f in concurrent.futures.as_completed(futs):
             if USER_ACTIVE_RUN.get(user_email) != run_id:
@@ -872,4 +880,5 @@ def serve_static(path):
     return send_from_directory(".", path)
 
 if __name__ == "__main__":
-    app.run(host="localhost", port=8080, debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False)
