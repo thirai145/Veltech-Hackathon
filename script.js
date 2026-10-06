@@ -97,4 +97,22 @@ async function initGoogleAuth() {
   }
 }
 
+// DIAGNOSTIC LOGGING (Temporary)
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    const diagDiv = document.createElement("div");
+    diagDiv.style.cssText = "position:fixed;bottom:0;left:0;background:black;color:lime;font-family:monospace;padding:10px;font-size:12px;z-index:9999;";
+    diagDiv.innerHTML = `
+      <strong>OAUTH DIAGNOSTICS</strong><br>
+      Browser Origin: ${window.location.origin}<br>
+      Host: ${window.location.host}<br>
+      Client ID loaded: ${currentClientId || 'null'}
+    `;
+    document.body.appendChild(diagDiv);
+    console.log("=== OAUTH DIAGNOSTICS ===");
+    console.log("Browser Origin (This must EXACTLY match Google Cloud Authorized Javascript Origins):", window.location.origin);
+    console.log("Client ID being initialized:", currentClientId);
+  }, 2000);
+});
+
 window.addEventListener("load", initGoogleAuth);
